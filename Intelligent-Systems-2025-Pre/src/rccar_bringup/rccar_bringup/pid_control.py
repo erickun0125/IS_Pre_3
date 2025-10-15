@@ -83,9 +83,9 @@ class PurePursuit(Node):
             Recommend tuning PID coefficient P->D->I order.
             Also, Recommend set Ki extremely low.
         """
-        self.Kp = 0.0
-        self.Ki = 0.0
-        self.Kd = 0.0
+        self.Kp = 1.0
+        self.Ki = 0.001
+        self.Kd = 0.1
         ###################################################
         ###################################################
         self.get_logger().info(">>> Running PreProject 3")
@@ -161,8 +161,43 @@ class PurePursuit(Node):
                 4) Calculate input velocity of the rccar appropriately in terms of input steering
                 """
 
-                steer = 0
-                speed = 0
+                # 1) Find nearest waypoint from the rccar
+                distances = np.linalg.norm(waypoints - pos, axis=1)
+                nearest_idx = np.argmin(distances)
+                
+                # 2) Get lookahead waypoint (10th next waypoint from nearest)
+                lookahead_idx = (nearest_idx + self.lookahead) % N
+                lookahead_point = waypoints[lookahead_idx]
+                
+                # Calculate direction vector to lookahead waypoint
+                direction_vector = lookahead_point - pos
+                target_angle = np.arctan2(direction_vector[1], direction_vector[0])
+                
+                # Calculate error between car heading and target direction
+                curr_err = target_angle - yaw
+                # Normalize error to [-pi, pi]
+                curr_err = np.arctan2(np.sin(curr_err), np.cos(curr_err))
+                
+                # 3) PID controller for steering
+                if prev_err is None:
+                    prev_err = curr_err
+                
+                # Integral term
+                sum_err += curr_err
+                # Derivative term
+                derivative = curr_err - prev_err
+                
+                # PID formula
+                steer = self.Kp * curr_err + self.Ki * sum_err + self.Kd * derivative
+                steer = np.clip(steer, -self.max_steer, self.max_steer)
+                
+                # 4) Calculate velocity based on steering
+                # Reduce speed on sharp turns, increase on straight paths
+                speed = self.max_speed * (1.0 - 0.5 * abs(steer) / self.max_steer)
+                speed = np.clip(speed, self.min_speed, self.max_speed)
+                
+                # Update previous error for next iteration
+                prev_err = curr_err
 
                 ###################################################
                 ###################################################
